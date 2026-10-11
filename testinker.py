@@ -1,11 +1,14 @@
 import customtkinter as ctk
 import tkinter as tk
 from pathlib import Path
+from copy import deepcopy
 import math
 import CTkGradient as ctkg
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
+from more_tinkering import plane, test_plane
+
 
 default_trajectory = [
     (50, 200), (70, 195), (90, 192), (110, 190), (130, 191),
@@ -49,8 +52,21 @@ def compute_trajectory(wingspan=5, starting_angle=270, starting_velocity=0, cent
 root = ctk.CTk()
 global trajectory
 trajectory = default_trajectory
+trajectory_in_meters = False
+AIRPLANE_OFFSET_X = 20
+AIRPLANE_OFFSET_Y = 20
 
-original_airplane_image = Image.open(Path(__file__).with_name("paper_airplane.png")).convert("RGBA")
+airplane_image_path = Path(__file__).with_name("paper_airplane.png")
+if airplane_image_path.exists():
+    original_airplane_image = Image.open(airplane_image_path).convert("RGBA")
+else:
+    original_airplane_image = Image.new("RGBA", (120, 60), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(original_airplane_image)
+    draw.polygon([(15, 30), (95, 20), (95, 40), (15, 30)], fill=(255, 255, 255, 255))
+    draw.polygon([(35, 15), (75, 30), (35, 45), (35, 15)], fill=(255, 255, 255, 255))
+    draw.line((15, 30, 95, 30), fill=(255, 255, 255, 255), width=2)
+    draw.line((35, 15, 35, 45), fill=(255, 255, 255, 255), width=2)
+
 paper_airplane = original_airplane_image.resize((60, 60), Image.LANCZOS)
 rotated_airplane = ImageTk.PhotoImage(paper_airplane)
 
@@ -68,7 +84,6 @@ SideFrame = ctk.CTkFrame(
     corner_radius = 10,
     fg_color = "#0359A5"
 )
-
 SideFrame.pack(side = ctk.LEFT, fill = ctk.Y)
 
 # Title
@@ -153,16 +168,20 @@ def slider_event_starting_velocity(value):
 
 def slider_event_center_of_mass_x(value):
     global x
-    x = int(value)
-    CenterOfMassStatLabelX.configure(text=f"Center of Mass Vertical (cm): {x}")
+    x = float(value)
+    CenterOfMassStatLabelX.configure(text=f"Center of Mass Vertical (cm): {x:.3f}")
 
 def slider_event_center_of_mass_y(value):
     global x
-    x = int(value)
-    CenterOfMassStatLabelY.configure(text=f"Center of Mass Horizontal (cm): {x}")
+    x = float(value)
+    CenterOfMassStatLabelY.configure(text=f"Center of Mass Horizontal (cm): {x:.3f}")
 
 def checkbox_event_advanced_options():
-    pass
+    global trajectory, trajectory_in_meters
+    trajectory = test_plane(deepcopy(plane), 0, 0)
+    trajectory_in_meters = True
+    plot_points(trajectory)
+    start_animation()
 
 # SLIDERS YOU KNOW! ######################################
 
@@ -265,8 +284,8 @@ CenterOfMassSliderX = ctk.CTkSlider(
     Internal_Box, 
     width = 100, 
     height = 20,
-    from_ = -5, 
-    to = 5, 
+    from_ = -0.005, 
+    to = 0.005, 
     number_of_steps = 10,
     command = slider_event_center_of_mass_x,
     fg_color = "red",
@@ -294,8 +313,8 @@ CenterOfMassSliderY = ctk.CTkSlider(
     Internal_Box, 
     width = 100, 
     height = 20,
-    from_ = -5.00, 
-    to = 5.00, 
+    from_ = -0.005, 
+    to = 0.005, 
     number_of_steps = 10,
     command = slider_event_center_of_mass_y,
     fg_color = "red",
@@ -359,7 +378,8 @@ def plot_points(points):
 
 ########################################
 def launch_event():
-    global trajectory, frame_index
+    global trajectory, trajectory_in_meters
+    trajectory_in_meters = False
     current_wingspan = WingSpanSlider.get()
     current_starting_angle = StartingAngleSlider.get()
     current_starting_velocity = StartingVelocitySlider.get()
@@ -375,12 +395,17 @@ def launch_event():
     )
 
     if trajectory:
-        start_x, start_y = trajectory[0]
-        if 'airplane_id' in globals():
-            MainFrame.gradient.coords(airplane_id, start_x, -start_y)
         plot_points(trajectory)
 
     print(f"Wingspan: {current_wingspan}, Starting Angle: {current_starting_angle}, \nStarting Velocity: {current_starting_velocity}, Center of Mass X: {current_center_of_mass_x}, Center of Mass Y: {current_center_of_mass_y}")
+    start_animation()
+
+
+def start_animation():
+    global frame_index
+    if trajectory:
+        start_x, start_y = canvas_point(trajectory[0])
+        MainFrame.gradient.coords(airplane_id, start_x, start_y)
     frame_index = 0
     animation_loop_image()
 
@@ -408,7 +433,8 @@ LaunchButton.pack(pady = 40, padx = 40)
 
 if trajectory:
     airplane_id = MainFrame.gradient.create_image(
-        trajectory[0][0], -trajectory[0][1],
+        trajectory[0][0] + AIRPLANE_OFFSET_X,
+        -trajectory[0][1] + AIRPLANE_OFFSET_Y,
         image=rotated_airplane,
         anchor=tk.CENTER,
         tags="airplane_tag"
@@ -422,15 +448,11 @@ def animation_loop_image():
     global frame_index
 
     if trajectory and frame_index < len(trajectory):
-        x, y = trajectory[frame_index]
-        screen_x = x
-        screen_y = -y
+        screen_x, screen_y = canvas_point(trajectory[frame_index])
         MainFrame.gradient.coords(airplane_id, screen_x, screen_y)
 
         if frame_index + 1 < len(trajectory):
-            next_x, next_y = trajectory[frame_index + 1]
-            next_screen_x = next_x
-            next_screen_y = -next_y
+            next_screen_x, next_screen_y = canvas_point(trajectory[frame_index + 1])
 
             dx = next_screen_x - screen_x
             dy = next_screen_y - screen_y
@@ -452,10 +474,26 @@ def animation_loop_image():
         root.after(20, animation_loop_image)
     else:
         if trajectory:
-            start_x, start_y = trajectory[0]
-            MainFrame.gradient.coords(airplane_id, start_x, -start_y)
+            start_x, start_y = canvas_point(trajectory[0])
+            MainFrame.gradient.coords(airplane_id, start_x, start_y)
             globals()['last_airplane_angle'] = 0.0
             frame_index = 0
+
+
+def canvas_point(point):
+    x, y = point
+    if not trajectory_in_meters:
+        return x + AIRPLANE_OFFSET_X, -y + AIRPLANE_OFFSET_Y
+
+    canvas_width = max(1, MainFrame.gradient.winfo_width())
+    canvas_height = max(1, MainFrame.gradient.winfo_height())
+    padding = 60
+    x_values, y_values = zip(*trajectory)
+    x_span = max(x_values) - min(x_values) or 1
+    y_span = max(y_values) - min(y_values) or 1
+    screen_x = padding + (x - min(x_values)) / x_span * max(1, canvas_width - 2 * padding)
+    screen_y = padding + (max(y_values) - y) / y_span * max(1, canvas_height - 2 * padding)
+    return screen_x + AIRPLANE_OFFSET_X, screen_y + AIRPLANE_OFFSET_Y
 
 ########################################
 
