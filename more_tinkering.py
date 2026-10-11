@@ -198,8 +198,7 @@ def test_plane(plane, launch_direction, launch_speed):
     # Took me an hour too long
     print("\nTrajectory History")
     formatted_trajectory = ", ".join([f"({x_val:.2f}, {y_val:.2f})" for x_val, y_val in trajectory])
-    return [formatted_trajectory]
+    return trajectory
 
 #return list where first value is total distance travelled, everything after that is the collected
-
 
